@@ -1,0 +1,72 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1080px; height: 1350px; }
+  body {
+    background: #0B0E13;
+    color: #E8ECF3;
+    font-family: -apple-system, "SF Pro Display", "PingFang SC", "Helvetica Neue", sans-serif;
+    display: flex; flex-direction: column;
+  }
+  .map-wrap { position: relative; height: 620px; background: #10151D; overflow: hidden; }
+  .map-wrap svg { display: block; }
+  .map-tag {
+    position: absolute; top: 28px; left: 36px;
+    font-size: 22px; letter-spacing: 6px; color: #5B6778; font-weight: 600;
+  }
+  .privacy-tag {
+    position: absolute; top: 28px; right: 36px;
+    font-size: 20px; color: #4A5568; letter-spacing: 1px;
+  }
+  .head { padding: 34px 52px 10px; display: flex; align-items: baseline; gap: 22px; }
+  .head .sport { font-size: 30px; font-weight: 800; letter-spacing: 2px; }
+  .head .date { font-size: 24px; color: #7C8AA0; }
+  .stats { display: flex; padding: 14px 52px 26px; gap: 0; }
+  .stat { flex: 1; }
+  .stat .v { font-size: 66px; font-weight: 800; letter-spacing: -1px; line-height: 1.1; }
+  .stat .v small { font-size: 26px; font-weight: 600; color: #7C8AA0; margin-left: 6px; }
+  .stat .u { font-size: 21px; color: #7C8AA0; margin-top: 6px; letter-spacing: 1px; }
+  .stat.hr .v { color: #F87171; }
+  .sigs { margin: 6px 52px 0; padding: 26px 30px; background: #121826; border-radius: 20px;
+          display: flex; flex-direction: column; gap: 20px; }
+  .sig { display: flex; align-items: baseline; gap: 16px; }
+  .sig .ico { font-size: 26px; width: 40px; }
+  .sig .label { font-size: 21px; color: #7C8AA0; width: 190px; letter-spacing: 1px; }
+  .sig .val { font-size: 26px; font-weight: 700; }
+  .sig.env .val { color: #FBBF24; }
+  .sig.perf .val { color: #60A5FA; }
+  .foot { margin-top: auto; padding: 40px 52px 46px; }
+  .foot .line { border-left: 5px solid #FF5A3C; padding-left: 26px; font-size: 31px;
+                line-height: 1.55; font-weight: 600; color: #F1F5FB; }
+  .foot .sub { margin-top: 18px; padding-left: 31px; font-size: 19px; color: #55627A; }
+</style>
+</head>
+<body>
+  <div class="map-wrap">
+    {{MAP_SVG}}
+    <div class="map-tag">{{SPORT_LABEL}}</div>
+    <div class="privacy-tag">{{PRIVACY_TAG}}</div>
+  </div>
+  <div class="head">
+    <div class="sport">RUN</div><div class="date">{{DATE_STR}}</div>
+  </div>
+  <div class="stats">
+    <div class="stat"><div class="v">{{DIST}}<small>km</small></div><div class="u">距离</div></div>
+    <div class="stat"><div class="v">{{DUR}}</div><div class="u">时长</div></div>
+    <div class="stat"><div class="v">{{PACE}}</div><div class="u">配速</div></div>
+    <div class="stat hr"><div class="v">{{AVGHR}}<small>bpm</small></div><div class="u">平均心率</div></div>
+  </div>
+  <div class="sigs">
+    <div class="sig cardio"><div class="ico">❤️</div><div class="label">有氧负荷</div><div class="val">{{SIG_CARDIO}}</div></div>
+    <div class="sig env"><div class="ico">🌡️</div><div class="label">环境热负荷</div><div class="val">{{SIG_ENV}}</div></div>
+    <div class="sig perf"><div class="ico">⚡</div><div class="label">心率漂移</div><div class="val">{{SIG_PERF}}</div></div>
+  </div>
+  <div class="foot">
+    <div class="line">{{ONE_LINER}}</div>
+    <div class="sub">{{FOOT_SUB}}</div>
+  </div>
+</body>
+</html>

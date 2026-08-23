@@ -1,0 +1,59 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0B0E13; color: #E8ECF3; width: 1080px; margin: 0 auto; padding: 56px 64px 80px;
+    font-family: -apple-system, "SF Pro Display", "PingFang SC", "Helvetica Neue", sans-serif;
+  }
+  h1 { font-size: 40px; letter-spacing: 1px; }
+  .sub { color: #7C8AA0; font-size: 22px; margin-top: 10px; }
+  .hero {
+    margin: 40px 0; padding: 34px 38px; background: #121826; border-radius: 22px;
+    border-left: 6px solid #FF5A3C; font-size: 30px; line-height: 1.6; font-weight: 600;
+  }
+  h2 { font-size: 25px; color: #9AA8BE; letter-spacing: 2px; margin: 48px 0 18px; font-weight: 700; }
+  .chart-note { font-size: 19px; color: #7C8AA0; margin: 10px 0 22px; line-height: 1.5; }
+  .zones { display: flex; height: 56px; border-radius: 12px; overflow: hidden; margin-top: 8px; }
+  .zones div { display: flex; align-items: center; justify-content: center;
+               font-size: 19px; font-weight: 700; color: #0B0E13; }
+  .zrow { display: flex; gap: 30px; font-size: 19px; color: #9AA8BE; margin-top: 14px; }
+  table { width: 100%; border-collapse: collapse; font-size: 21px; }
+  th { text-align: left; color: #7C8AA0; font-weight: 600; padding: 10px 12px; border-bottom: 1px solid #232C3D; }
+  td { padding: 10px 12px; border-bottom: 1px solid #182031; }
+  td.hl { color: #F87171; font-weight: 700; }
+  .steps { background: #121826; border-radius: 18px; padding: 28px 34px; }
+  .steps li { font-size: 24px; line-height: 1.6; margin: 12px 0; color: #DCE4F2; }
+  .disclaimer { margin-top: 56px; font-size: 17px; color: #55627A; line-height: 1.6; }
+  .kv { display: flex; flex-wrap: wrap; gap: 12px 40px; font-size: 20px; color: #9AA8BE; margin-top: 16px; }
+  .kv b { color: #E8ECF3; font-weight: 700; }
+</style>
+</head>
+<body>
+  <h1>{{TITLE}}</h1>
+  <div class="sub">{{SUBTITLE}}</div>
+  <div class="hero">{{ONE_LINER}}</div>
+
+  <h2>PACE × HEART RATE</h2>
+  {{TIMELINE_SVG}}
+  <div class="chart-note">{{TIMELINE_NOTE}}</div>
+
+  <h2>HEART RATE ZONES</h2>
+  {{ZONES_BAR}}
+  <div class="zrow">{{ZONES_LEGEND}}</div>
+  <div class="kv">{{ZONE_BASIS}}</div>
+
+  <h2>VS 个人历史相似跑步</h2>
+  {{BASELINE_BLOCK}}
+
+  <h2>下一步</h2>
+  <ol class="steps">{{STEPS}}</ol>
+
+  <div class="disclaimer">
+    本报告为运动健康分析，不构成医学诊断。心率区间基于个人历史数据估计；如出现异常数据伴明显症状，
+    建议停止高强度运动并考虑专业医学评估。
+  </div>
+</body>
+</html>

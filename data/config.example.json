@@ -1,0 +1,42 @@
+{
+  "athlete": {
+    "name": null,
+    "age": null,
+    "max_hr": null,
+    "lthr": null,
+    "lab_threshold_hr": null
+  },
+  "source_priority": [
+    "COROS",
+    "Apple Watch",
+    "Garmin",
+    "Strava",
+    "iPhone",
+    "Other App"
+  ],
+  "privacy": {
+    "default_on": true,
+    "trim_radius_m": 300,
+    "start_trim_m": 300,
+    "end_trim_m": 300
+  },
+  "similar_filters": {
+    "pace_tolerance_pct": 12,
+    "distance_tolerance_pct": 25,
+    "temp_tolerance_c": 4.0,
+    "humidity_tolerance_pct": 15,
+    "min_similar": 3,
+    "max_lookback_days": 365
+  },
+  "steady_state": {
+    "min_speed_mps": 1.8,
+    "grade_max_pct": 3.0,
+    "pace_band_pct": 15,
+    "warmup_min": 5,
+    "cooldown_min": 3,
+    "min_steady_minutes": 10
+  },
+  "weather": {
+    "archive_delay_days": 5
+  }
+}

@@ -1,0 +1,12 @@
+# 私人健康数据 —— 绝不入库（real personal health data, never commit）
+data/*.duckdb
+data/*.duckdb.wal
+data/config.json
+data/.chrome*
+output/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
