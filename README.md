@@ -1,19 +1,18 @@
-# Endurance Health Analyst 🏃💙
+# 耐力运动解释引擎
 
-> **结论先行**：这是一个本地优先的个人耐力运动「解释引擎」——输入 Apple Health 导出
-> （或 COROS FIT），输出的不是数据仪表盘，而是一句因果结论：
-> **「今天你的身体为这次运动付出了什么，以及为什么」**，外加一张可分享的运动卡。
-> 不做人群排名，不出医疗诊断，全部数据留在你自己的电脑上。
+> **A local-first endurance workout explanation engine built around your own history.**
+
+输入 Apple Health 导出（或 COROS FIT），输出的不是另一个数据仪表盘，而是一句因果结论：**「今天你的身体为这次运动付出了什么，以及为什么」**，外加一张保护路线隐私的分享卡。
 
 ```mermaid
 flowchart LR
     A[运动记录<br/>Apple Health / COROS FIT] --> B[身体响应<br/>HR 曲线 · 配速 · 爬升]
-    B --> C[环境影响<br/>Open-Meteo 温度/湿度/露点/风]
-    C --> D[个人历史基线<br/>相似训练 · 7/28/90/365d 滚动窗口]
-    D --> E[解释今天<br/>一句话 + 三个信号 ❤️🌡⚡ + 建议]
-    E --> F[分享卡<br/>路线主角 · 隐私模式默认开启]
-    style E fill:#e8f0fe,stroke:#4a6fa5,stroke-width:2px
-    style F fill:#e6f4ea,stroke:#2e7d32,stroke-width:2px
+    B --> C[环境影响<br/>温度 · 湿度 · 露点 · 风]
+    C --> D[个人历史基线<br/>相似训练 · 滚动窗口]
+    D --> E[解释今天<br/>结论 · 信号 · 建议]
+    E --> F[分享卡<br/>路线隐私默认开启]
+    style E fill:#D8E8E4,stroke:#769A92,stroke-width:2px
+    style F fill:#E7EFED,stroke:#91AAA5,stroke-width:2px
 ```
 
 一个典型输出长这样（而不是"今天跑了 3.9 km，平均心率 153"）：
