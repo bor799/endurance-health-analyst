@@ -1,4 +1,6 @@
-# Endurance Health Analyst
+# 耐力运动解释引擎
+
+> **A local-first endurance workout explanation engine built around your own history.**
 
 ## 明明和上次跑得差不多，为什么今天感觉完全不一样？
 
@@ -11,7 +13,7 @@
 2. **是天气、睡眠、近期训练、肌肉疲劳、手表记录，还是跑力真的发生了变化？**
 3. **下一次应该调整训练，还是正常恢复后再观察？**
 
-`endurance-health-analyst` 会把 Apple Watch / Apple Health 记录、当天环境、主观感受和你自己的历史训练放到同一条证据链里，给出一句可理解的结论和下一步动作。
+`endurance-health-analyst` 会把 Apple Watch / Apple Health 记录、当天环境、主观感受和你自己的历史训练放到同一条证据链里，给出一句可理解的结论和下一步动作，外加一张保护路线隐私的分享卡。
 
 它是一名**专业运动健康分析助理**，不是医生，也不提供疾病诊断。
 
@@ -22,6 +24,8 @@ flowchart LR
     C --> D[和过去的自己比较<br/>相似训练 · 7/28/90/365 天]
     D --> E[下一步<br/>训练建议 · 放松提醒]
     E --> F[朋友圈记录<br/>照片 × 隐私轨迹 × 核心数据]
+    style E fill:#D8E8E4,stroke:#769A92,stroke-width:2px
+    style F fill:#E7EFED,stroke:#91AAA5,stroke-width:2px
 ```
 
 ---
