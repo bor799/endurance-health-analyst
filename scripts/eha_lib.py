@@ -43,6 +43,7 @@ DEFAULT_CONFIG = {
         "warmup_min": 5, "cooldown_min": 3, "min_steady_minutes": 10,
     },
     "weather": {"archive_delay_days": 5},
+    "recovery": {"macos_reminders_list": "Reminders"},
 }
 
 
@@ -137,6 +138,26 @@ CREATE TABLE IF NOT EXISTS subjective (
 CREATE TABLE IF NOT EXISTS analyses (
     workout_id TEXT PRIMARY KEY,
     generated_at TIMESTAMP, analysis JSON
+);
+CREATE TABLE IF NOT EXISTS muscle_recovery (
+    plan_id              TEXT PRIMARY KEY,
+    workout_id           TEXT,
+    muscle_groups        JSON,
+    routine              JSON,
+    duration_min         INTEGER,
+    remind_at            TIMESTAMP,
+    timezone             TEXT,
+    reminder_backend     TEXT,
+    reminder_external_id TEXT,
+    reminder_state       TEXT,
+    plan_status          TEXT,
+    soreness_before      INTEGER,
+    soreness_after       INTEGER,
+    note                 TEXT,
+    checkin_note         TEXT,
+    created_at           TIMESTAMP,
+    updated_at           TIMESTAMP,
+    completed_at         TIMESTAMP
 );
 CREATE TABLE IF NOT EXISTS ingest_log (
     ts TIMESTAMP, kind TEXT, detail JSON
@@ -272,6 +293,11 @@ def to_utc(dt: datetime) -> datetime:
     return dt.astimezone(timezone.utc).replace(tzinfo=None)
 
 
+def utc_now() -> datetime:
+    """Return a UTC instant for storage in the existing naive TIMESTAMP schema."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
 # ---------------------------------------------------------------------------
 # Physics / formatting helpers
 # ---------------------------------------------------------------------------
@@ -373,13 +399,16 @@ def workout_row_to_dict(row) -> dict:
 
 def get_weather(conn, workout_id: str):
     row = conn.execute(
-        "SELECT temperature_c, humidity_pct, apparent_c, dew_point_c, wind_kmh, precip_mm"
+        "SELECT temperature_c, humidity_pct, apparent_c, dew_point_c, wind_kmh, precip_mm, raw"
         " FROM weather WHERE workout_id = ?", [workout_id]
     ).fetchone()
     if not row:
         return None
     keys = ["temperature_c", "humidity_pct", "apparent_c", "dew_point_c", "wind_kmh", "precip_mm"]
-    return {k: (float(v) if v is not None else None) for k, v in zip(keys, row)}
+    out = {k: (float(v) if v is not None else None) for k, v in zip(keys, row[:6])}
+    raw = row[6] if isinstance(row[6], dict) else (json.loads(row[6]) if row[6] else {})
+    out["position_source"] = raw.get("position_source", "unknown")
+    return out
 
 
 def log_ingest(conn, kind: str, detail: dict):

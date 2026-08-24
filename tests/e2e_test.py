@@ -148,8 +148,10 @@ def main():
     except json.JSONDecodeError:
         check("trend report runs", False, "non-JSON output")
 
-    print("\n-- 5. render card + report")
-    r = run([os.path.join(SCRIPTS, "render_card.py"), "--workout", wid, "--db", DB])
+    print("\n-- 5. render photo-led square card + report")
+    photo = make_demo_photo(tmp)
+    r = run([os.path.join(SCRIPTS, "render_card.py"), "--workout", wid, "--db", DB,
+             "--photo", photo, "--renderer", "pillow"])
     check("render exits 0", r.returncode == 0, r.stdout.strip().splitlines()[-1] if r.stdout else "")
     png = os.path.join(OUT, "workout-card.png")
     check("workout-card.png exists >30KB", os.path.exists(png) and os.path.getsize(png) > 30_000,
@@ -157,13 +159,25 @@ def main():
     try:
         from PIL import Image
         with Image.open(png) as im:
-            check("png is 2160×1350@2x", im.size == (2160, 2700), f"{im.size}")
+            check("png is square 2160×2160", im.size == (2160, 2160), f"{im.size}")
+            check("png has no EXIF/GPS metadata", not im.getexif() and
+                  "gps" not in {str(k).lower() for k in im.info})
     except ImportError:
-        print("  [SKIP] PIL not available for size check")
+        print("  [SKIP] PIL not available for size/metadata check")
     with open(os.path.join(OUT, "workout-card.html"), encoding="utf-8") as f:
         html = f.read()
-    check("privacy mode tag on card", "PRIVACY MODE" in html)
-    check("route polyline drawn", "<path" in html and "routeGrad" in html)
+    check("privacy state visible on card", "起终点已隐藏" in html)
+    check("route polyline drawn", "<path" in html and "GPS TRACE" in html)
+    check("photo embedded without local path", "data:image/png;base64," in html and photo not in html)
+    conn = duckdb.connect(DB)
+    raw_coords = conn.execute(
+        "SELECT lat, lon FROM route_points WHERE workout_id=? ORDER BY seq LIMIT 25", [wid]
+    ).fetchall()
+    conn.close()
+    coord_tokens = [format(float(value), ".7f") for pair in raw_coords for value in pair]
+    check("every sampled raw GPS coordinate absent from share HTML",
+          all(token not in html for token in coord_tokens),
+          f"checked {len(coord_tokens)} coordinate tokens")
     with open(os.path.join(OUT, "report.html"), encoding="utf-8") as f:
         rep = f.read()
     check("report has pace×HR timeline", "PACE s/km" in rep and "HR bpm" in rep)
@@ -183,6 +197,30 @@ def summarize():
     n_fail = len(RESULTS) - n_pass
     print(f"\n== e2e result: {n_pass} passed, {n_fail} failed ==")
     return 1 if n_fail else 0
+
+
+def make_demo_photo(tmp):
+    """Build a deterministic synthetic landscape with no person or real location."""
+    from PIL import Image, ImageDraw
+
+    path = os.path.join(tmp, "synthetic-card-photo.jpg")
+    size = 1200
+    img = Image.new("RGB", (size, size), "#8CA1AE")
+    draw = ImageDraw.Draw(img)
+    for y in range(size):
+        t = y / (size - 1)
+        if t < 0.58:
+            rgb = (int(105 + 70 * t), int(135 + 55 * t), int(155 + 45 * t))
+        else:
+            u = (t - 0.58) / 0.42
+            rgb = (int(89 - 45 * u), int(111 - 55 * u), int(86 - 50 * u))
+        draw.line((0, y, size, y), fill=rgb)
+    draw.polygon([(0, 690), (200, 530), (420, 630), (650, 500),
+                  (880, 620), (1200, 540), (1200, 800), (0, 800)], fill="#526B5D")
+    draw.polygon([(360, 1200), (585, 690), (735, 690), (1050, 1200)], fill="#806C5E")
+    draw.polygon([(450, 1200), (625, 690), (675, 690), (810, 1200)], fill="#B8A28A")
+    img.save(path, "JPEG", quality=90)
+    return path
 
 
 def make_mini_fit(tmp):

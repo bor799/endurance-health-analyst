@@ -234,12 +234,18 @@ def compute_hrr(conn, workout_id: str):
 # ---------------------------------------------------------------------------
 
 def resolve_hr_basis(conn, cfg, current_max_hr):
-    """Priority: lab threshold > LTHR > observed history max > 220-age (estimated)."""
+    """Priority: lab threshold > LTHR > configured max > observed max > 220-age."""
     ath = cfg.get("athlete") or {}
     if ath.get("lab_threshold_hr"):
         return {"type": "lab_threshold", "lthr": float(ath["lab_threshold_hr"]), "estimated": False}
     if ath.get("lthr"):
         return {"type": "configured_lthr", "lthr": float(ath["lthr"]), "estimated": False}
+    if ath.get("max_hr") is not None:
+        configured = float(ath["max_hr"])
+        if not 100 <= configured <= 240:
+            raise ValueError("athlete.max_hr must be between 100 and 240 bpm")
+        return {"type": "configured_max_hr", "max_hr": configured, "estimated": False,
+                "note": "user-configured maximum heart rate"}
     hist_max = conn.execute(
         """SELECT max(max_hr) FROM workouts
            WHERE max_hr IS NOT NULL AND start_time >= now() - INTERVAL 365 DAY""").fetchone()

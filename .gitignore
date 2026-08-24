@@ -4,6 +4,8 @@ data/*.duckdb.wal
 data/config.json
 data/.chrome*
 output/
+# Optional repository-local source photos
+private-photos/
 
 # Python
 .venv/

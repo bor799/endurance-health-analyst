@@ -1,15 +1,12 @@
 #!/usr/bin/env python3
-"""Render the Show Up workout card (PNG) and the pace × HR report (HTML).
+"""Render a square workout share card (PNG) and the pace × HR report (HTML).
 
-Route is the visual hero: minimal dark map, gradient polyline, start/finish dots.
-Privacy mode is ON by default — GPS points within config.privacy.trim_radius_m of
-the start AND finish are removed before anything is drawn or exported.
-
-PNG pipeline: HTML template -> Chrome headless screenshot; falls back to a
-pure-Pillow renderer if Chrome is unavailable.
+An optional local photo is the card hero; the privacy-trimmed route is projected
+onto it as a visual perspective trace. Privacy is ON by default and fails closed:
+short or fully trimmed routes are hidden rather than restored.
 
 Usage:
-  python render_card.py --workout latest:run [--privacy off] [--out output/workout-card.png]
+  python render_card.py --workout latest:run [--photo IMG.HEIC] [--privacy off]
 """
 from __future__ import annotations
 
@@ -20,13 +17,14 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from datetime import timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import eha_lib as E  # noqa: E402
+import card_visual as V  # noqa: E402
 
-CARD_W, CARD_H = 1080, 1350
-MAP_W, MAP_H = 1080, 620
+CARD_W, CARD_H = V.CARD_W, V.CARD_H
 CHROME_CANDIDATES = [
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
     "/Applications/Chromium.app/Contents/MacOS/Chromium",
@@ -65,9 +63,18 @@ def gather(conn, workout_id: str):
 # ---------------------------------------------------------------------------
 
 def privacy_trim(points, cfg, enabled=True):
-    """Drop GPS points within trim radius of start and finish (default 300 m)."""
-    if not enabled or not points or len(points) < 10:
-        return points, False
+    """Return (safe points, status), failing closed whenever privacy is on.
+
+    Status is one of: off, trimmed, fully_hidden, no_route. In privacy mode a
+    short route or a route fully consumed by the trim radius is hidden; the
+    original coordinates are never restored as a fallback.
+    """
+    if not points:
+        return [], "no_route"
+    if not enabled:
+        return list(points), "off"
+    if len(points) < 10:
+        return [], "fully_hidden"
     p = cfg["privacy"]
     r0 = (points[0][1], points[0][2])
     r1 = (points[-1][1], points[-1][2])
@@ -78,85 +85,79 @@ def privacy_trim(points, cfg, enabled=True):
         if E.haversine_m(lat, lon, *r0) < rs or E.haversine_m(lat, lon, *r1) < re_:
             continue
         kept.append((ts, lat, lon, alt))
-    return (kept or points), bool(kept and len(kept) < len(points))
+    return (kept, "trimmed") if kept else ([], "fully_hidden")
 
 
 # ---------------------------------------------------------------------------
-# Route -> SVG
+# Privacy-safe local route projection
 # ---------------------------------------------------------------------------
 
-def project_paths(points, w, h, pad=70.0):
-    """Equirectangular projection fitted to the box. Returns list of SVG path 'd' strings."""
+def project_route_xy(points, pad=0.06):
+    """Project safe geo points into normalized local XY chunks.
+
+    Call only after privacy_trim(). Raw coordinates stop at this boundary;
+    card_visual receives only the returned 0..1 XY paths.
+    """
     if not points:
         return []
     lat0 = sum(p[1] for p in points) / len(points)
     k = math.cos(math.radians(lat0))
-    xs = [(p[2] * k) for p in points]
+    xs = [p[2] * k for p in points]
     ys = [p[1] for p in points]
     x0, x1, y0, y1 = min(xs), max(xs), min(ys), max(ys)
-    sx = (w - 2 * pad) / max(x1 - x0, 1e-9)
-    sy = (h - 2 * pad) / max(y1 - y0, 1e-9)
-    s = min(sx, sy)
+    sx = (1 - 2 * pad) / max(x1 - x0, 1e-9)
+    sy = (1 - 2 * pad) / max(y1 - y0, 1e-9)
+    scale = min(sx, sy)
     cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
-    px = [w / 2 + (x - cx) * s for x in xs]
-    py = [h / 2 - (y - cy) * s for y in ys]
-    # split into contiguous chunks on >8s GPS gaps or >120m jumps
-    chunks, cur = [], [(px[0], py[0])]
+    xy = [(0.5 + (x - cx) * scale, 0.5 - (y - cy) * scale)
+          for x, y in zip(xs, ys)]
+    chunks, cur = [], [xy[0]]
     for i in range(1, len(points)):
         dt = (points[i][0] - points[i - 1][0]).total_seconds()
-        d = E.haversine_m(points[i - 1][1], points[i - 1][2], points[i][1], points[i][2])
-        if dt > 8 or d > 120:
-            chunks.append(cur)
+        dist = E.haversine_m(points[i - 1][1], points[i - 1][2],
+                             points[i][1], points[i][2])
+        if dt > 8 or dist > 120:
+            if len(cur) >= 2:
+                chunks.append(cur)
             cur = []
-        cur.append((px[i], py[i]))
-    chunks.append(cur)
-    paths = []
-    for ch in chunks:
-        if len(ch) < 2:
-            continue
-        d = f"M{ch[0][0]:.1f},{ch[0][1]:.1f}" + "".join(f"L{x:.1f},{y:.1f}" for x, y in ch[1:])
-        paths.append(d)
-    first, last = (px[0], py[0]), (px[-1], py[-1])
-    return paths, first, last
+        cur.append(xy[i])
+    if len(cur) >= 2:
+        chunks.append(cur)
+    return chunks
 
 
-def map_svg(points, w=MAP_W, h=MAP_H):
-    if not points:
-        return fallback_hero_svg(w, h)
-    paths, first, last = project_paths(points, w, h)
-    grid = []
-    for gx in range(0, w, 90):
-        grid.append(f'<line x1="{gx}" y1="0" x2="{gx}" y2="{h}" stroke="#161D2A" stroke-width="1"/>')
-    for gy in range(0, h, 90):
-        grid.append(f'<line x1="0" y1="{gy}" x2="{w}" y2="{gy}" stroke="#161D2A" stroke-width="1"/>')
-    route_svg = "".join(
-        f'<path d="{d}" fill="none" stroke="#FF5A3C" stroke-opacity="0.22" stroke-width="14" '
-        f'stroke-linecap="round" stroke-linejoin="round"/>' for d in paths)
-    route_svg += "".join(
-        f'<path d="{d}" fill="none" stroke="url(#routeGrad)" stroke-width="5.5" '
-        f'stroke-linecap="round" stroke-linejoin="round"/>' for d in paths)
-    return (
-        f'<svg width="{w}" height="{h}" viewBox="0 0 {w} {h}" xmlns="http://www.w3.org/2000/svg">'
-        f'<defs><linearGradient id="routeGrad" x1="0%" y1="0%" x2="100%" y2="100%">'
-        f'<stop offset="0%" stop-color="#FF5A3C"/><stop offset="100%" stop-color="#FFB020"/>'
-        f'</linearGradient></defs>'
-        f'<rect width="{w}" height="{h}" fill="#10151D"/>'
-        f'{"".join(grid)}'
-        f'<circle cx="{w * 0.5}" cy="{h * 0.5}" r="{min(w, h) * 0.52}" fill="#0D1219"/>'
-        f'{route_svg}'
-        f'<circle cx="{first[0]:.1f}" cy="{first[1]:.1f}" r="9" fill="#4ADE80" stroke="#0B0E13" stroke-width="3"/>'
-        f'<circle cx="{last[0]:.1f}" cy="{last[1]:.1f}" r="9" fill="#F8FAFC" stroke="#0B0E13" stroke-width="3"/>'
-        f"</svg>"
-    )
+def privacy_label(status):
+    return {
+        "trimmed": "起终点已隐藏",
+        "fully_hidden": "路线因隐私保护未展示",
+        "off": "隐私模式已关闭",
+        "no_route": "本次无 GPS 轨迹",
+    }[status]
 
 
-def fallback_hero_svg(w, h):
-    return (
-        f'<svg width="{w}" height="{h}" xmlns="http://www.w3.org/2000/svg">'
-        f'<rect width="{w}" height="{h}" fill="#10151D"/>'
-        f'<text x="{w / 2}" y="{h / 2}" text-anchor="middle" fill="#4A5568" font-size="26">'
-        f"无 GPS 轨迹（路线为分享卡主角，建议带表记录）</text></svg>"
-    )
+def build_card_spec(ctx, route_paths, privacy_status, photo_png=None):
+    """Build the renderer contract with no geo coordinates or source paths."""
+    w = ctx["w"]
+    a = ctx["analysis"] or {}
+    st = w["start_time"].replace(tzinfo=timezone.utc).astimezone()
+    wx = ctx["weather"]
+    return {
+        "photo_png": photo_png,
+        "route_paths": route_paths,
+        "privacy_status": privacy_status,
+        "privacy_tag": privacy_label(privacy_status),
+        "sport_label": {"run": "R U N", "ride": "R I D E", "swim": "S W I M"}.get(
+            w["sport_type"], w["sport_type"].upper()),
+        "date_str": st.strftime("%Y.%m.%d  %H:%M"),
+        "distance": E.fmt_km(w["distance_m"]),
+        "duration": E.fmt_duration(w["duration_s"]),
+        "pace": E.fmt_pace(w["avg_pace_s_per_km"]),
+        "avg_hr": f"{w['avg_hr']:.0f}" if w["avg_hr"] else "–",
+        "one_liner": a.get("one_liner", "今天完成了一次训练。"),
+        "foot_sub": (f"{w['sport_type']} · {st.strftime('%H:%M')} 出发 · "
+                     + (f"{wx['temperature_c']:.0f}°C RH {wx['humidity_pct']:.0f}%"
+                        if wx and wx.get("temperature_c") is not None else "天气未记录")),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -226,43 +227,6 @@ def timeline_svg(series, analysis, w=952, h=340):
 # ---------------------------------------------------------------------------
 # HTML assembly
 # ---------------------------------------------------------------------------
-
-def _sig(analysis, key, default="–"):
-    return ((analysis or {}).get("signals", {}).get(key)) or default
-
-
-def build_card_html(ctx, cfg, privacy_on):
-    w = ctx["w"]
-    a = ctx["analysis"]
-    st = w["start_time"].replace(tzinfo=timezone.utc).astimezone()
-    dist = E.fmt_km(w["distance_m"])
-    dur = E.fmt_duration(w["duration_s"])
-    pace = E.fmt_pace(w["avg_pace_s_per_km"])
-    avghr = f"{w['avg_hr']:.0f}" if w["avg_hr"] else "–"
-    wx = ctx["weather"]
-    env = _sig(a, "environment", "– 天气")
-    drift_txt = _sig(a, "performance", "–")
-    drift_txt = drift_txt.replace("Drift · ", "")
-    with open(os.path.join(E.SKILL_ROOT, "templates", "workout-card.html"), encoding="utf-8") as f:
-        html = f.read()
-    subs = {
-        "MAP_SVG": map_svg(ctx["route_trimmed"]),
-        "SPORT_LABEL": {"run": "R U N", "ride": "R I D E", "swim": "S W I M"}.get(w["sport_type"], w["sport_type"].upper()),
-        "PRIVACY_TAG": "PRIVACY MODE · 起终点已隐藏" if privacy_on else "",
-        "DATE_STR": st.strftime("%Y.%m.%d  %H:%M"),
-        "DIST": dist, "DUR": dur, "PACE": pace, "AVGHR": avghr,
-        "SIG_CARDIO": _sig(a, "cardiovascular").replace("HR Cost · ", ""),
-        "SIG_ENV": env.replace("Heat Load · ", ""),
-        "SIG_PERF": drift_txt,
-        "ONE_LINER": (a or {}).get("one_liner", "今天完成了一次跑步。"),
-        "FOOT_SUB": (f"{w['sport_type']} · {st.strftime('%H:%M')} 出发 · "
-                     + (f"{wx['temperature_c']:.0f}°C RH {wx['humidity_pct']:.0f}%"
-                        if wx and wx.get("temperature_c") is not None else "天气未记录")),
-    }
-    for k, v in subs.items():
-        html = html.replace("{{" + k + "}}", str(v))
-    return html
-
 
 def build_report_html(ctx):
     w = ctx["w"]
@@ -389,194 +353,111 @@ def chrome_screenshot(html_path: str, png_path: str, w=CARD_W, h=CARD_H, scale=2
         shutil.rmtree(profile, ignore_errors=True)
 
 
-def pillow_card(ctx, cfg, privacy_on, png_path):
-    """Primary renderer without a browser (Chrome headless is best-effort only)."""
-    from PIL import Image, ImageDraw, ImageFont
-
-    S = 2  # supersample
-    W, H = CARD_W * S, CARD_H * S
-    img = Image.new("RGB", (W, H), "#0B0E13")
-    d = ImageDraw.Draw(img)
-    CJK = "/System/Library/Fonts/PingFang.ttc"
-    LAT = "/System/Library/Fonts/Helvetica.ttc"
-
-    def font(size, cjk=False):
-        for path in ([CJK, LAT] if cjk else [LAT, CJK]):
-            if os.path.exists(path):
-                try:
-                    return ImageFont.truetype(path, int(size * S))
-                except OSError:
-                    continue
-        return ImageFont.load_default()
-
-    def text_w(s, f):
-        return d.textlength(s, font=f)
-
-    def wrap(s, f, max_px):
-        lines, cur = [], ""
-        for ch in s:
-            if text_w(cur + ch, f) > max_px and cur:
-                lines.append(cur)
-                cur = ch
-            else:
-                cur += ch
-        if cur:
-            lines.append(cur)
-        return lines
-
-    # ---- map hero ----------------------------------------------------------
-    d.rectangle([0, 0, W, MAP_H * S], fill="#10151D")
-    for gx in range(0, CARD_W, 90):
-        d.line([(gx * S, 0), (gx * S, MAP_H * S)], fill="#161D2A", width=S)
-    for gy in range(0, MAP_H, 90):
-        d.line([(0, gy * S), (W, gy * S)], fill="#161D2A", width=S)
-    pts = ctx["route_trimmed"]
-    if pts:
-        paths, first, last = project_paths([(p[0], p[1], p[2], p[3]) for p in pts], MAP_W, MAP_H)
-        for path_d in paths:
-            xy = [(float(seg[1:].split(",")[0]), float(seg[1:].split(",")[1]))
-                  for seg in path_d.split("L")]
-            scaled = [(x * S, y * S) for x, y in xy]
-            d.line(scaled, fill="#FF5A3C", width=14 * S, joint="curve")  # glow underlay
-            d.line(scaled, fill="#FF7A3C", width=5 * S, joint="curve")
-        for (px, py), fill, ring in [(first, "#4ADE80", "#0B0E13"), (last, "#F8FAFC", "#0B0E13")]:
-            x, y = px * S, py * S
-            d.ellipse([x - 18 * S, y - 18 * S, x + 18 * S, y + 18 * S], fill=ring)
-            d.ellipse([x - 13 * S, y - 13 * S, x + 13 * S, y + 13 * S], fill=fill)
-    f_sport = font(22, cjk=True)
-    d.text((36 * S, 28 * S), "R U N", fill="#5B6778", font=f_sport)
-    if privacy_on:
-        tag = "PRIVACY MODE · 起终点已隐藏"
-        f_tag = font(19, cjk=True)
-        d.text(((CARD_W - 36) * S - text_w(tag, f_tag), 28 * S), tag,
-               fill="#4A5568", font=f_tag)
-
-    # ---- header + stats ----------------------------------------------------
-    w_, a = ctx["w"], ctx["analysis"] or {}
-    st = w_["start_time"].replace(tzinfo=timezone.utc).astimezone()
-    y = (MAP_H + 36) * S
-    d.text((52 * S, y), st.strftime("%Y.%m.%d  %H:%M"), fill="#7C8AA0", font=font(26, cjk=True))
-    y += 74 * S
-    stats = [
-        (E.fmt_km(w_["distance_m"]), "km", "距离", "#F1F5FB"),
-        (E.fmt_duration(w_["duration_s"]), "", "时长", "#F1F5FB"),
-        (E.fmt_pace(w_["avg_pace_s_per_km"]), "", "配速", "#F1F5FB"),
-        (f"{w_['avg_hr']:.0f}" if w_["avg_hr"] else "–", "bpm", "平均心率", "#F87171"),
-    ]
-    col_w = (CARD_W - 104) / 4
-    for i, (v, unit, label, color) in enumerate(stats):
-        x = (52 + i * col_w) * S
-        f_v = font(46)
-        if text_w(v, f_v) > col_w * S * 0.9:
-            f_v = font(int(46 * col_w * S * 0.9 / text_w(v, f_v)))
-        d.text((x, y), v, fill=color, font=f_v)
-        if unit:
-            d.text((x + text_w(v, f_v) + 8 * S, y + 26 * S), unit, fill="#7C8AA0", font=font(22))
-        d.text((x, y + 72 * S), label, fill="#7C8AA0", font=font(20, cjk=True))
-    y += 132 * S
-
-    # ---- signals panel -----------------------------------------------------
-    panel_h = 232
-    d.rounded_rectangle([52 * S, y, (CARD_W - 52) * S, (y + panel_h * S)],
-                        radius=20 * S, fill="#121826")
-    sy = y + 30 * S
-    rows = [
-        ("❤", "有氧负荷", _sig(a, "cardiovascular").replace("HR Cost · ", ""), "#F87171"),
-        ("🌡", "环境热负荷", _sig(a, "environment").replace("Heat Load · ", ""), "#FBBF24"),
-        ("⚡", "心率漂移", _sig(a, "performance").replace("Drift · ", ""), "#60A5FA"),
-    ]
-    for ico, label, val, color in rows:
-        d.text((82 * S, sy - 4 * S), ico, fill=color, font=font(26))
-        d.text((128 * S, sy), label, fill="#7C8AA0", font=font(21, cjk=True))
-        f_val = font(25, cjk=True)
-        vx = 340 * S
-        if text_w(val, f_val) > (CARD_W - 52 - 340 - 30) * S:
-            f_val = font(int(25 * (CARD_W - 422) * S / text_w(val, f_val)), cjk=True)
-        d.text((vx, sy), val, fill=color, font=f_val)
-        sy += 68 * S
-    y += (panel_h + 40) * S
-
-    # ---- footer one-liner --------------------------------------------------
-    wx = ctx["weather"]
-    sub = (f"{w_['sport_type']} · {st.strftime('%H:%M')} 出发 · "
-           + (f"{wx['temperature_c']:.0f}°C RH {wx['humidity_pct']:.0f}%" if wx and wx.get("temperature_c") is not None else "天气未记录"))
-    f_line = font(31, cjk=True)
-    lines = wrap(a.get("one_liner", ""), f_line, (CARD_W - 104 - 34) * S)
-    while len(lines) > 3:  # clamp
-        f_line = font(int(31 * 0.88), cjk=True)
-        lines = wrap(a.get("one_liner", ""), f_line, (CARD_W - 104 - 34) * S)
-    line_h = 52 * S
-    block_h = len(lines) * line_h + 40 * S
-    fy = H - 64 * S - block_h - 34 * S
-    d.rectangle([52 * S, fy, 58 * S, fy + block_h], fill="#FF5A3C")
-    ly = fy
-    for ln in lines:
-        d.text((90 * S, ly), ln, fill="#F1F5FB", font=f_line)
-        ly += line_h
-    d.text((90 * S, ly + 6 * S), sub, fill="#55627A", font=font(19, cjk=True))
-    img.save(png_path, "PNG")
-
-
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
-def main():
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--workout", default="latest:run")
-    ap.add_argument("--privacy", choices=["on", "off"], default=None,
-                    help="default: config.privacy.default_on")
-    ap.add_argument("--out", default=None, help="default output/workout-card.png")
-    ap.add_argument("--no-png", action="store_true", help="only write report.html")
-    ap.add_argument("--retry-chrome", action="store_true",
-                    help="retry Chrome headless even if previously marked broken")
-    ap.add_argument("--db", default=E.DEFAULT_DB)
-    args = ap.parse_args()
+def build_parser():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--workout", default="latest:run")
+    parser.add_argument("--photo", default=None, help="local JPEG/PNG/HEIC used as the card hero")
+    parser.add_argument("--privacy", choices=["on", "off"], default=None,
+                        help="default: config.privacy.default_on")
+    parser.add_argument("--renderer", choices=["auto", "chrome", "pillow"], default="auto")
+    parser.add_argument("--out", default=None, help="default output/workout-card.png")
+    parser.add_argument("--no-png", action="store_true", help="only write card/report HTML")
+    parser.add_argument("--retry-chrome", action="store_true",
+                        help="retry Chrome headless even if previously marked broken")
+    parser.add_argument("--db", default=E.DEFAULT_DB)
+    return parser
+
+
+def main(argv=None):
+    args = build_parser().parse_args(argv)
 
     cfg = E.load_config()
+    out_dir = E.ensure_output_dir()
+    card_html_path = os.path.join(out_dir, "workout-card.html")
+    report_path = os.path.join(out_dir, "report.html")
+    default_png_path = os.path.join(out_dir, "workout-card.png")
+    png_path = args.out or default_png_path
+
+    # Canonical paths always describe the latest attempt. Remove prior generated
+    # artifacts up front so a failed privacy-on render cannot leave an older
+    # privacy-off card looking current.
+    for stale in {card_html_path, report_path, default_png_path, os.path.abspath(png_path)}:
+        try:
+            os.remove(stale)
+        except FileNotFoundError:
+            pass
+
     conn = E.connect(args.db)
     wid = E.resolve_workout(conn, args.workout)
     if not wid:
+        conn.close()
         print("[render] workout not found", file=sys.stderr)
         return 1
     ctx = gather(conn, wid)
     conn.close()
+
     privacy_on = (args.privacy == "on") if args.privacy else cfg["privacy"].get("default_on", True)
-    ctx["route_trimmed"], trimmed = privacy_trim(ctx["route"], cfg, privacy_on)
+    safe_route, privacy_status = privacy_trim(ctx["route"], cfg, privacy_on)
+    route_paths = project_route_xy(safe_route)
+    # Raw geo data stops here. The renderer contract contains local XY only.
+    ctx.pop("route", None)
+    try:
+        photo_png = V.normalize_photo(args.photo) if args.photo else None
+    except ValueError as exc:
+        print(f"[render] {exc}; no output was published", file=sys.stderr)
+        return 2
+    spec = build_card_spec(ctx, route_paths, privacy_status, photo_png)
 
-    out_dir = E.ensure_output_dir()
-    card_html_path = os.path.join(out_dir, "workout-card.html")
-    report_path = os.path.join(out_dir, "report.html")
-    with open(card_html_path, "w", encoding="utf-8") as f:
-        f.write(build_card_html(ctx, cfg, privacy_on))
-    with open(report_path, "w", encoding="utf-8") as f:
-        f.write(build_report_html(ctx))
-    print(f"[render] html → {card_html_path}, {report_path}")
+    template = os.path.join(E.SKILL_ROOT, "templates", "workout-card.html")
+    temp_dir = tempfile.mkdtemp(prefix=".eha-render-", dir=out_dir)
+    tmp_card = os.path.join(temp_dir, "workout-card.html")
+    tmp_report = os.path.join(temp_dir, "report.html")
+    tmp_png = os.path.join(temp_dir, "workout-card.png")
+    try:
+        with open(tmp_card, "w", encoding="utf-8") as f:
+            f.write(V.build_html(spec, template))
+        with open(tmp_report, "w", encoding="utf-8") as f:
+            f.write(build_report_html(ctx))
 
-    if args.no_png:
-        return 0
-    png_path = args.out or os.path.join(out_dir, "workout-card.png")
-    if args.retry_chrome:
-        marker = os.path.join(E.DATA_DIR, ".chrome_headless_broken")
-        if os.path.exists(marker):
-            os.remove(marker)
-    ok = chrome_screenshot(card_html_path, png_path)
-    how = "chrome headless"
-    if not ok:
-        try:
-            pillow_card(ctx, cfg, privacy_on, png_path)
-            ok = True
-            how = "pillow"
-        except ImportError:
-            ok = False
-    if ok:
+        if args.no_png:
+            os.replace(tmp_card, card_html_path)
+            os.replace(tmp_report, report_path)
+            print(f"[render] html → {card_html_path}, {report_path}")
+            return 0
+
+        if args.retry_chrome:
+            marker = os.path.join(E.DATA_DIR, ".chrome_headless_broken")
+            if os.path.exists(marker):
+                os.remove(marker)
+
+        ok, how = False, args.renderer
+        if args.renderer in ("auto", "chrome"):
+            ok = chrome_screenshot(tmp_card, tmp_png)
+            how = "chrome headless"
+        if not ok and args.renderer in ("auto", "pillow"):
+            try:
+                V.render_pillow(spec, tmp_png)
+                ok, how = True, "pillow"
+            except (ImportError, OSError, ValueError) as exc:
+                print(f"[render] pillow failed: {exc}", file=sys.stderr)
+        if not ok:
+            print("[render] PNG failed; no canonical output was published", file=sys.stderr)
+            return 2
+
+        os.makedirs(os.path.dirname(os.path.abspath(png_path)), exist_ok=True)
+        os.replace(tmp_card, card_html_path)
+        os.replace(tmp_report, report_path)
+        os.replace(tmp_png, png_path)
+        print(f"[render] html → {card_html_path}, {report_path}")
         kb = os.path.getsize(png_path) / 1024
-        print(f"[render] png → {png_path} ({kb:.0f} KB, {how}"
-              + (", privacy trimmed)" if trimmed else ")"))
+        print(f"[render] png → {png_path} ({kb:.0f} KB, {how}, privacy={privacy_status})")
         return 0
-    print("[render] PNG failed: no Chrome and no Pillow. Open the HTML and screenshot manually.",
-          file=sys.stderr)
-    return 2
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 if __name__ == "__main__":

@@ -47,7 +47,7 @@ def workout_position(conn, workout_id: str):
            WHERE workout_id = ? AND lat IS NOT NULL AND lon IS NOT NULL""", [workout_id]
     ).fetchone()
     if row and row[0] is not None:
-        return float(row[0]), float(row[1])
+        return float(row[0]), float(row[1]), "workout_route"
     # Fallback for summary-only workouts (COROS/Keep sync without GPX): the
     # athlete trains in the same city — borrow the nearest geo-located workout.
     start = conn.execute("SELECT start_time FROM workouts WHERE workout_id = ?",
@@ -62,7 +62,7 @@ def workout_position(conn, workout_id: str):
            ORDER BY abs(date_diff('minute', w.start_time, ?)) LIMIT 1""",
         [start[0], start[0], start[0]]).fetchone()
     if row and row[0] is not None:
-        return float(row[0]), float(row[1])
+        return float(row[0]), float(row[1]), "nearest_geolocated_workout_60d"
     return None
 
 
@@ -147,7 +147,7 @@ def enrich_one(conn, workout_id: str, archive_delay_days: int, force=False) -> d
     if not pos:
         print(f"[weather] no GPS route for {workout_id} — cannot locate; skipping", file=sys.stderr)
         return None
-    lat, lon = pos
+    lat, lon, position_source = pos
     hourly, api = fetch_hourly(lat, lon, start_utc, end_utc, archive_delay_days)
     if not hourly or api == "none":
         return None
@@ -158,7 +158,8 @@ def enrich_one(conn, workout_id: str, archive_delay_days: int, force=False) -> d
         "INSERT OR REPLACE INTO weather VALUES (?,?,?,?,?,?,?,?,now())",
         [workout_id, s["temperature_c"], s["humidity_pct"], s["apparent_c"],
          s["dew_point_c"], s["wind_kmh"], s["precip_mm"],
-         json.dumps({"lat": lat, "lon": lon, "api": api, "hours": s["hours_averaged"]})])
+         json.dumps({"lat": lat, "lon": lon, "api": api, "hours": s["hours_averaged"],
+                     "position_source": position_source})])
     conn.commit()
     return s
 

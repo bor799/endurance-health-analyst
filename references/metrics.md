@@ -55,6 +55,7 @@ Basis resolution priority (stored in `hr_zones.basis`, `estimated` flag surfaced
 ```
 lab_threshold_hr (config)           → LTHR zones (Friel %LTHR: 81/89/96/100)
 lthr (config, from COROS/Apple)     → LTHR zones
+max_hr (user config)                → %max zones (60/70/80/90), configured provenance
 observed max HR in 365 d history    → %max zones (60/70/80/90) — estimated, lower bound
 220 − age (config)                  → %max zones — estimated, least reliable
 ```
