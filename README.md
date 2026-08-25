@@ -1,6 +1,12 @@
+<div align="center">
+
 # 耐力运动解释引擎
 
-> **A local-first endurance workout explanation engine built around your own history.**
+**今天身体为这次训练付出了什么，以及为什么？**
+
+*A local-first endurance workout explanation engine built around your own history.*
+
+</div>
 
 ## 明明和上次跑得差不多，为什么今天感觉完全不一样？
 
@@ -24,8 +30,12 @@ flowchart LR
     C --> D[和过去的自己比较<br/>相似训练 · 7/28/90/365 天]
     D --> E[下一步<br/>训练建议 · 放松提醒]
     E --> F[朋友圈记录<br/>照片 × 隐私轨迹 × 核心数据]
-    style E fill:#D8E8E4,stroke:#769A92,stroke-width:2px
-    style F fill:#E7EFED,stroke:#91AAA5,stroke-width:2px
+    style A fill:#E9F4F2,stroke:#A9CFC8,stroke-width:2px,color:#1C3B36
+    style B fill:#E9F4F2,stroke:#A9CFC8,stroke-width:2px,color:#1C3B36
+    style C fill:#DCEFEA,stroke:#37907F,stroke-width:2px,color:#0F3D33
+    style D fill:#E9F4F2,stroke:#A9CFC8,stroke-width:2px,color:#1C3B36
+    style E fill:#DCEFEA,stroke:#37907F,stroke-width:2px,color:#0F3D33
+    style F fill:#E9F4F2,stroke:#A9CFC8,stroke-width:2px,color:#1C3B36
 ```
 
 ---
